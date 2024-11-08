@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mediasoup Video Conference</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script src="./mediasoupClient.bundle.js"></script>
+  </head>
+  <body>
+    <h1>Mediasoup Video Conference</h1>
+    <button id="joinRoom">Join Room</button>
+    <div>
+      <h2>Local Stream</h2>
+      <video id="localVideo" autoplay muted playsinline></video>
+    </div>
+    <div>
+      <h2>Remote Stream</h2>
+      <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+
+    <script>
+      const socket = io('http://localhost:3001');
+      const roomId = 'test-room';
+      let device;
+      let localStream;
+      let producerTransport;
+      let consumerTransport;
+      let consumer;
+
+      socket.on('connect', async () => {
+        console.log('Connected to server');
+      });
+
+      document
+        .getElementById('joinRoom')
+        .addEventListener('click', async () => {
+          socket.emit('joinRoom', { roomId });
+
+          device = new mediasoupClient.Device();
+
+          socket.emit('getRtpCapabilities');
+          const rtpCapabilities = await new Promise((resolve) => {
+            socket.on('rtpCapabilities', (data) => {
+              resolve(data);
+            });
+          });
+
+          await device.load({ routerRtpCapabilities: rtpCapabilities });
+
+          // Media Stream 생성 및 로컬 비디오 설정
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
+
+          document.getElementById('localVideo').srcObject = localStream;
+
+          producerTransport = await createSendTransport();
+
+          // 오디오 및 비디오 트랙 가져오기
+          const audioTrack = localStream.getAudioTracks()[0];
+          const videoTrack = localStream.getVideoTracks()[0];
+
+          if (audioTrack) {
+            await producerTransport.produce({ track: audioTrack });
+          }
+
+          if (videoTrack) {
+            await producerTransport.produce({ track: videoTrack });
+          }
+        });
+
+      async function createSendTransport() {
+        const transportOptions = await new Promise((resolve) => {
+          socket.emit('createTransport', { direction: 'send' });
+          socket.on('transportCreated', (data) => {
+            resolve(data);
+          });
+        });
+
+        const transport = device.createSendTransport(transportOptions);
+
+        transport.on('connect', ({ dtlsParameters }, callback, errback) => {
+          socket.emit('connectTransport', {
+            transportId: transport.id,
+            dtlsParameters,
+          });
+
+          // 서버의 성공 응답 (transportConnected) 대기
+          socket.on('transportConnected', ({ transportId }) => {
+            console.log(`connectTransport ${transportId} is connected`);
+            callback(); // 성공 시 callback 호출
+          });
+
+          // 서버의 오류 응답 (transportConnectionError) 대기
+          socket.on('transportConnectionError', (error) => {
+            console.error('Error in connectTransport:', error);
+            errback(error);
+          });
+        });
+
+        transport.on('produce', (parameters, callback, errback) => {
+          socket.emit('produce', {
+            roomId,
+            transportId: transport.id,
+            kind: parameters.kind,
+            rtpParameters: parameters.rtpParameters,
+          });
+
+          // 서버의 성공 응답 대기
+          socket.on('producerCreated', ({ producerId }) => {
+            callback({ id: producerId }); // 성공 시 callback 호출
+          });
+
+          // 서버의 오류 응답 대기
+          socket.on('producerCreationError', (error) => {
+            console.error('Error in produce:', error);
+            errback(error);
+          });
+        });
+
+        return transport;
+      }
+
+      socket.on('newProducer', async ({ producerId }) => {
+        if (!consumerTransport) {
+          consumerTransport = await createRecvTransport();
+        }
+
+        socket.emit('consume', {
+          roomId,
+          transportId: consumerTransport.id,
+          producerId: producerId,
+          rtpCapabilities: device.rtpCapabilities,
+        });
+      });
+
+      socket.on(
+        'consumerCreated',
+        async ({ consumerId, producerId, kind, rtpParameters }) => {
+          const consumer = await consumerTransport.consume({
+            id: consumerId,
+            producerId: producerId,
+            kind: kind,
+            rtpParameters: rtpParameters,
+          });
+
+          const remoteStream = new MediaStream();
+          remoteStream.addTrack(consumer.track);
+          document.getElementById('remoteVideo').srcObject = remoteStream;
+
+          console.log('Consumer added track:', consumer.track);
+        },
+      );
+
+      async function createRecvTransport() {
+        const transportOptions = await new Promise((resolve) => {
+          socket.emit('createTransport', { direction: 'recv' });
+          socket.on('transportCreated', (data) => {
+            resolve(data);
+          });
+        });
+
+        const transport = device.createRecvTransport(transportOptions);
+
+        transport.on('connect', ({ dtlsParameters }, callback, errback) => {
+          // 서버에 connectTransport 요청 전송
+          socket.emit('connectTransport', {
+            transportId: transport.id,
+            dtlsParameters,
+          });
+
+          // 서버의 성공 응답 대기
+          socket.on('transportConnected', () => {
+            callback(); // 성공 시 callback 호출
+          });
+
+          // 서버의 오류 응답 대기
+          socket.on('transportConnectionError', (error) => {
+            console.error('Error in connectTransport:', error);
+            errback(error);
+          });
+        });
+
+        return transport;
+      }
+    </script>
+  </body>
+</html>
