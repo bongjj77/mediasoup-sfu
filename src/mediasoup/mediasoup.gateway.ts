@@ -8,6 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { MediasoupService } from './mediasoup.service';
+import * as mediasoup from 'mediasoup';
 
 @WebSocketGateway(3001, { cors: { origin: '*', credentials: true } })
 export class MediasoupGateway
@@ -21,20 +22,34 @@ export class MediasoupGateway
     await this.mediasoupService.initializeWorker();
   }
 
+  /**
+   * Socket.IO connected
+   */
   handleConnection(client: Socket): void {
     console.log('Client connected:', client.id);
   }
 
+  /**
+   * Socket.IO disconnected
+   */
   handleDisconnect(client: Socket): void {
     console.log('Client disconnected:', client.id);
+
+    // 클라이언트가 참여한 roomId를 가져와 자원 정리
+    const roomId = Array.from(client.rooms).find((room) => room !== client.id); // client.id는 자신의 기본 room이므로 제외
+    if (roomId) {
+      this.mediasoupService.cleanupClientResources(roomId, client.id);
+    }
   }
 
+  /**
+   * Join Room
+   */
   @SubscribeMessage('joinRoom')
   async handleJoinRoom(
     client: Socket,
-    payload: { roomId: string },
+    { roomId }: { roomId: string },
   ): Promise<void> {
-    const { roomId } = payload;
     console.log(`Client ${client.id} joined room ${roomId}`);
 
     await this.mediasoupService.createRoom(roomId);
@@ -42,110 +57,146 @@ export class MediasoupGateway
     client.emit('joinedRoom', { roomId });
   }
 
+  /**
+   *
+   */
   @SubscribeMessage('getRtpCapabilities')
   handleGetRtpCapabilities(client: Socket): void {
-    client.emit(
-      'rtpCapabilities',
-      this.mediasoupService.router.rtpCapabilities,
-    );
+    try {
+      client.emit(
+        'getRtpCapabilitiesSuccess',
+        this.mediasoupService.router.rtpCapabilities,
+      );
+    } catch (error) {
+      client.emit('getRtpCapabilitiesError', {
+        message: 'Failed to get RTP capabilities',
+      });
+    }
   }
 
+  /**
+   *
+   */
   @SubscribeMessage('createTransport')
   async handleCreateTransport(
     client: Socket,
-    { direction }: { direction: 'send' | 'recv' },
+    { roomId, direction }: { roomId: string; direction: 'send' | 'recv' },
   ): Promise<void> {
-    const transport = await this.mediasoupService.createTransport();
-    client.emit('transportCreated', {
-      id: transport.id,
-      iceParameters: transport.iceParameters,
-      iceCandidates: transport.iceCandidates,
-      dtlsParameters: transport.dtlsParameters,
-    });
+    try {
+      const transport = await this.mediasoupService.createTransport(
+        roomId,
+        client.id,
+      );
+      client.emit('createTransportSuccess', {
+        id: transport.id,
+        iceParameters: transport.iceParameters,
+        iceCandidates: transport.iceCandidates,
+        dtlsParameters: transport.dtlsParameters,
+      });
+    } catch (error) {
+      console.error('Error creating transport:', error);
+      client.emit('createTransportError', { message: error.message });
+    }
   }
 
+  /**
+   *
+   */
   @SubscribeMessage('connectTransport')
   async handleConnectTransport(
     client: Socket,
-    { transportId, dtlsParameters },
+    {
+      roomId,
+      transportId,
+      dtlsParameters,
+    }: {
+      roomId: string;
+      transportId: string;
+      dtlsParameters: mediasoup.types.DtlsParameters;
+    },
   ): Promise<void> {
-    const transport = this.mediasoupService.getTransport(transportId);
-    if (!transport) {
-      console.error('Transport not found');
-
-      // 클라이언트에 transport not found 오류 응답 전송
-      client.emit('transportConnectionError', { error: 'Transport not found' });
-    }
-
     try {
-      await transport.connect({ dtlsParameters });
-      client.emit('transportConnected', { transportId });
+      await this.mediasoupService.connectTransport(
+        roomId,
+        transportId,
+        dtlsParameters,
+      );
+      client.emit('connectTransportSuccess', { transportId });
     } catch (error) {
       console.error('Error connecting transport:', error);
-      client.emit('transportConnectionError', { error: error.message });
+      client.emit('connectTransportError', { message: error.message });
     }
   }
 
+  /**
+   *
+   */
   @SubscribeMessage('produce')
   async handleProduce(
     client: Socket,
-    { roomId, transportId, kind, rtpParameters },
+    {
+      roomId,
+      transportId,
+      kind,
+      rtpParameters,
+    }: {
+      roomId: string;
+      transportId: string;
+      kind: mediasoup.types.MediaKind;
+      rtpParameters: mediasoup.types.RtpParameters;
+    },
   ): Promise<void> {
-    const transport = this.mediasoupService.getTransport(transportId);
-    if (!transport) {
-      console.error('Transport not found');
-      client.emit('producerCreationError', { error: 'Transport not found' });
-      return;
-    }
-
     try {
-      const producer = await transport.produce({ kind, rtpParameters });
-      client.emit('producerCreated', { producerId: producer.id });
+      const producer = await this.mediasoupService.createProducer(
+        roomId,
+        transportId,
+        kind,
+        rtpParameters,
+      );
 
-      // 첫 번째는 소켓 ID, 두 번째는 방 ID
-      // const roomId = Array.from(client.rooms)[1];
-
-      // MediasoupService를 통해 producer를 room에 추가
-      this.mediasoupService.addProducer(roomId, producer);
-
-      // 방에 있는 다른 클라이언트들에게 `newProducer` 이벤트 전파
-
+      client.emit('produceSuccess', { producerId: producer.id });
       client.to(roomId).emit('newProducer', { producerId: producer.id });
     } catch (error) {
       console.error('Error creating producer:', error);
-      client.emit('producerCreationError', { error: error.message });
+      client.emit('produceError', { error: error.message });
     }
   }
 
+  /**
+   *
+   */
   @SubscribeMessage('consume')
   async handleConsume(
     client: Socket,
-    { roomId, transportId, producerId, rtpCapabilities },
-  ): Promise<void> {
-    const transport = this.mediasoupService.getTransport(transportId);
-    if (!transport) {
-      console.log('Transport  not found for consuming');
-      return;
-    }
-
-    const producer = this.mediasoupService.getProducer(roomId, producerId);
-    if (!producer) {
-      console.log('Producer not found for consuming');
-      return;
-    }
-
-    const consumer = await transport.consume({
-      producerId: producer.id,
+    {
+      roomId,
+      transportId,
+      producerId,
       rtpCapabilities,
-    });
+    }: {
+      roomId: string;
+      transportId: string;
+      producerId: string;
+      rtpCapabilities: mediasoup.types.RtpCapabilities;
+    },
+  ): Promise<void> {
+    try {
+      const consumer = await this.mediasoupService.createConsumer(
+        roomId,
+        transportId,
+        producerId,
+        rtpCapabilities,
+      );
 
-    await consumer.resume();
-
-    client.emit('consumerCreated', {
-      consumerId: consumer.id,
-      producerId: producer.id,
-      kind: consumer.kind,
-      rtpParameters: consumer.rtpParameters,
-    });
+      client.emit('consumeSuccess', {
+        consumerId: consumer.id,
+        producerId: producerId,
+        kind: consumer.kind,
+        rtpParameters: consumer.rtpParameters,
+      });
+    } catch (error) {
+      console.error('Error creating consumer:', error);
+      client.emit('consumeError', { error: error.message });
+    }
   }
 }
