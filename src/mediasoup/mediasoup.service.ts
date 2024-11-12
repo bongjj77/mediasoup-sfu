@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { resolveObjectURL } from 'buffer';
 import * as mediasoup from 'mediasoup';
 
 type Room = {
