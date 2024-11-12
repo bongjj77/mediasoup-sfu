@@ -9,7 +9,15 @@
   </head>
   <body>
     <h1>Mediasoup Video Conference</h1>
+
+    <label for="audioSource">Audio Source:</label>
+    <select id="audioSource"></select>
+
+    <label for="videoSource">Video Source:</label>
+    <select id="videoSource"></select>
+
     <button id="joinRoom">Join Room</button>
+
     <div>
       <h2>Local Stream</h2>
       <video id="localVideo" autoplay muted playsinline></video>
@@ -28,6 +36,24 @@
       let consumerTransport;
       let consumer;
 
+      async function getMediaDevices() {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioSelect = document.getElementById('audioSource');
+        const videoSelect = document.getElementById('videoSource');
+
+        devices.forEach((device) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.text =
+            device.label || `${device.kind} ${audioSelect.length + 1}`;
+          if (device.kind === 'audioinput') {
+            audioSelect.appendChild(option);
+          } else if (device.kind === 'videoinput') {
+            videoSelect.appendChild(option);
+          }
+        });
+      }
+
       socket.on('connect', async () => {
         console.log('Connected to server');
       });
@@ -38,7 +64,6 @@
           socket.emit('joinRoom', { roomId });
 
           device = new mediasoupClient.Device();
-
           const rtpCapabilities = await emitWithTimeout(
             'getRtpCapabilities',
             {},
@@ -46,9 +71,16 @@
 
           await device.load({ routerRtpCapabilities: rtpCapabilities });
 
+          const audioSource = document.getElementById('audioSource').value;
+          const videoSource = document.getElementById('videoSource').value;
+
           localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true,
+            audio: {
+              deviceId: audioSource ? { exact: audioSource } : undefined,
+            },
+            video: {
+              deviceId: videoSource ? { exact: videoSource } : undefined,
+            },
           });
 
           document.getElementById('localVideo').srcObject = localStream;
@@ -167,6 +199,8 @@
           });
         });
       }
+
+      getMediaDevices();
     </script>
   </body>
 </html>
