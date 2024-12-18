@@ -10,7 +10,7 @@ import { Server, Socket } from 'socket.io';
 import { MediasoupService } from './mediasoup.service';
 import * as mediasoup from 'mediasoup';
 
-@WebSocketGateway(3001, { cors: { origin: '*', credentials: true } })
+@WebSocketGateway(3001, { cors: { origin: '*' } })
 export class MediasoupGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
@@ -52,9 +52,23 @@ export class MediasoupGateway
   ): Promise<void> {
     console.log(`Client ${client.id} joined room ${roomId}`);
 
+    // 방 생성 (이미 존재하면 기존 방 반환)
     await this.mediasoupService.createRoom(roomId);
+
+    // 클라이언트를 방에 추가
     client.join(roomId);
-    client.emit('joinedRoom', { roomId });
+
+    // 기존 Producer 목록 가져오기
+    const producers = this.mediasoupService.getProducers(roomId);
+
+    client.emit('joinedRoom', {
+      roomId,
+      producers: producers.map((producer) => ({
+        producerId: producer.id,
+        kind: producer.kind, // 'audio' or 'video'
+        clientId: producer.appData.clientId, // 해당 Producer를 생성한 클라이언트 ID
+      })),
+    });
   }
 
   /**
@@ -154,7 +168,10 @@ export class MediasoupGateway
         rtpParameters,
       );
 
+      // Producer 생성 성공 알림
       client.emit('produceSuccess', { producerId: producer.id });
+
+      // 방의 다른 클라이언트에게 새로운 Producer 정보 브로드캐스트
       client.to(roomId).emit('newProducer', { producerId: producer.id });
     } catch (error) {
       console.error('Error creating producer:', error);

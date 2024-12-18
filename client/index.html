@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mediasoup Video Conference</title>
     <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
-    <script src="./mediasoupClient.bundle.js"></script>
+    <script src="https://tugu.s3.ap-northeast-2.amazonaws.com/public/sfu-test/mediasoupClient.bundle.js"></script>
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <h1>Mediasoup Video Conference</h1>
@@ -22,13 +23,12 @@
       <h2>Local Stream</h2>
       <video id="localVideo" autoplay muted playsinline></video>
     </div>
-    <div>
-      <h2>Remote Stream</h2>
-      <video id="remoteVideo" autoplay playsinline></video>
+    <div id="remoteStreams">
+      <h2>Remote Streams</h2>
     </div>
 
     <script>
-      const socket = io('http://3.38.19.181:3001');
+      const socket = io('https://signaling-dev.aswing.net');
       const roomId = 'test-room';
       let device;
       let localStream;
@@ -56,6 +56,131 @@
 
       socket.on('connect', async () => {
         console.log('Connected to server');
+      });
+
+      socket.on('connect_error', (error) => {
+        console.error('Connection error:', error);
+        alert('Connection to the server failed. Please try again later.');
+      });
+
+      socket.on('joinedRoom', async ({ roomId, producers }) => {
+        console.log(`Joined room: ${roomId}, existing producers:`, producers);
+
+        // 각 Producer에 대해 consume 요청
+        for (const producer of producers) {
+          const { producerId, kind } = producer;
+
+          if (!consumerTransport) {
+            // 필요시 consumerTransport 생성
+            consumerTransport = await createRecvTransport();
+          }
+
+          const { consumerId, rtpParameters } = await emitWithTimeout(
+            'consume',
+            {
+              roomId,
+              transportId: consumerTransport.id,
+              producerId,
+              rtpCapabilities: device.rtpCapabilities,
+            },
+          );
+
+          // Consumer 생성
+          const consumer = await consumerTransport.consume({
+            id: consumerId,
+            producerId,
+            kind,
+            rtpParameters,
+          });
+
+          // Remote Stream 설정
+          const remoteStream = new MediaStream();
+          remoteStream.addTrack(consumer.track);
+
+          if (kind === 'video') {
+            let videoElement = document.getElementById(
+              `remoteVideo-${producerId}`,
+            );
+            if (!videoElement) {
+              videoElement = document.createElement('video');
+              videoElement.id = `remoteVideo-${producerId}`;
+              videoElement.autoplay = true;
+              videoElement.playsInline = true;
+              document.body.appendChild(videoElement);
+            }
+            videoElement.srcObject = remoteStream;
+          } else if (kind === 'audio') {
+            let audioElement = document.getElementById(
+              `remoteAudio-${producerId}`,
+            );
+            if (!audioElement) {
+              audioElement = document.createElement('audio');
+              audioElement.id = `remoteAudio-${producerId}`;
+              audioElement.autoplay = true;
+              document.body.appendChild(audioElement);
+            }
+            audioElement.srcObject = remoteStream;
+          }
+
+          await consumer.resume();
+          console.log('Consumer resumed:', consumer.id);
+        }
+      });
+
+      socket.on('newProducer', async ({ producerId }) => {
+        console.log(`New producer detected: ${producerId}`);
+
+        if (!consumerTransport) {
+          consumerTransport = await createRecvTransport();
+        }
+
+        const { consumerId, kind, rtpParameters } = await emitWithTimeout(
+          'consume',
+          {
+            roomId,
+            transportId: consumerTransport.id,
+            producerId: producerId,
+            rtpCapabilities: device.rtpCapabilities,
+          },
+        );
+
+        const consumer = await consumerTransport.consume({
+          id: consumerId,
+          producerId,
+          kind,
+          rtpParameters,
+        });
+
+        const remoteStream = new MediaStream();
+        remoteStream.addTrack(consumer.track);
+
+        if (kind === 'video') {
+          let videoElement = document.getElementById(
+            `remoteVideo-${producerId}`,
+          );
+          if (!videoElement) {
+            videoElement = document.createElement('video');
+            videoElement.id = `remoteVideo-${producerId}`;
+            videoElement.autoplay = true;
+            videoElement.playsInline = true;
+            document.body.appendChild(videoElement);
+          }
+          videoElement.srcObject = remoteStream;
+        } else if (kind === 'audio') {
+          let audioElement = document.getElementById(
+            `remoteAudio-${producerId}`,
+          );
+          if (!audioElement) {
+            audioElement = document.createElement('audio');
+            audioElement.id = `remoteAudio-${producerId}`;
+            audioElement.autoplay = true;
+            document.body.appendChild(audioElement);
+          }
+          audioElement.srcObject = remoteStream;
+        }
+
+        await consumer.resume();
+        console.log('Consumer resumed:', consumer.id);
       });
 
       document
@@ -149,36 +274,6 @@
 
         return transport;
       }
-
-      socket.on('newProducer', async ({ producerId }) => {
-        if (!consumerTransport) {
-          consumerTransport = await createRecvTransport();
-        }
-
-        const { consumerId, kind, rtpParameters } = await emitWithTimeout(
-          'consume',
-          {
-            roomId,
-            transportId: consumerTransport.id,
-            producerId: producerId,
-            rtpCapabilities: device.rtpCapabilities,
-          },
-        );
-
-        consumer = await consumerTransport.consume({
-          id: consumerId,
-          producerId,
-          kind,
-          rtpParameters,
-        });
-
-        const remoteStream = new MediaStream();
-        remoteStream.addTrack(consumer.track);
-        document.getElementById('remoteVideo').srcObject = remoteStream;
-
-        await consumer.resume();
-        console.log('Consumer resumed:', consumer.id);
-      });
 
       function emitWithTimeout(event, data, timeout = 5000) {
         return new Promise((resolve, reject) => {

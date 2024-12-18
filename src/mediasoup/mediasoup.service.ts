@@ -85,6 +85,17 @@ export class MediasoupService {
   }
 
   /**
+   * Room의 모든 Producers 반환
+   */
+  getProducers(roomId: string): mediasoup.types.Producer[] {
+    const room = this.getRoom(roomId);
+    if (!room) {
+      throw new Error(`Room ${roomId} not found`);
+    }
+    return Array.from(room.producers.values());
+  }
+
+  /**
    * Room 찾기
    */
   getRoom(roomId: string): Room | undefined {
