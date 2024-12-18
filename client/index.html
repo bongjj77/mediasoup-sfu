@@ -9,293 +9,38 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <h1>Mediasoup Video Conference</h1>
+    <h1>Tugu Video Conference</h1>
 
-    <label for="audioSource">Audio Source:</label>
-    <select id="audioSource"></select>
+    <!-- Audio and Video Selection -->
+    <div class="controls">
+      <div class="control-group">
+        <label for="audioSource">Audio</label>
+        <select id="audioSource"></select>
+      </div>
+      <div class="control-group">
+        <label for="videoSource">Video</label>
+        <select id="videoSource"></select>
+      </div>
+      <div class="control-group">
+        <button id="joinRoom">Join Room</button>
+        <label class="audio-only">
+          <input type="checkbox" id="audioOnly" />
+          Audio Only
+        </label>
+      </div>
+    </div>
 
-    <label for="videoSource">Video Source:</label>
-    <select id="videoSource"></select>
-
-    <button id="joinRoom">Join Room</button>
-
-    <div>
+    <!-- Local Stream -->
+    <div class="stream-container">
       <h2>Local Stream</h2>
       <video id="localVideo" autoplay muted playsinline></video>
     </div>
+
+    <!-- Remote Streams -->
     <div id="remoteStreams">
       <h2>Remote Streams</h2>
     </div>
 
-    <script>
-      const socket = io('https://signaling-dev.aswing.net');
-      const roomId = 'test-room';
-      let device;
-      let localStream;
-      let producerTransport;
-      let consumerTransport;
-      let consumer;
-
-      async function getMediaDevices() {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const audioSelect = document.getElementById('audioSource');
-        const videoSelect = document.getElementById('videoSource');
-
-        devices.forEach((device) => {
-          const option = document.createElement('option');
-          option.value = device.deviceId;
-          option.text =
-            device.label || `${device.kind} ${audioSelect.length + 1}`;
-          if (device.kind === 'audioinput') {
-            audioSelect.appendChild(option);
-          } else if (device.kind === 'videoinput') {
-            videoSelect.appendChild(option);
-          }
-        });
-      }
-
-      socket.on('connect', async () => {
-        console.log('Connected to server');
-      });
-
-      socket.on('connect_error', (error) => {
-        console.error('Connection error:', error);
-        alert('Connection to the server failed. Please try again later.');
-      });
-
-      socket.on('joinedRoom', async ({ roomId, producers }) => {
-        console.log(`Joined room: ${roomId}, existing producers:`, producers);
-
-        // 각 Producer에 대해 consume 요청
-        for (const producer of producers) {
-          const { producerId, kind } = producer;
-
-          if (!consumerTransport) {
-            // 필요시 consumerTransport 생성
-            consumerTransport = await createRecvTransport();
-          }
-
-          const { consumerId, rtpParameters } = await emitWithTimeout(
-            'consume',
-            {
-              roomId,
-              transportId: consumerTransport.id,
-              producerId,
-              rtpCapabilities: device.rtpCapabilities,
-            },
-          );
-
-          // Consumer 생성
-          const consumer = await consumerTransport.consume({
-            id: consumerId,
-            producerId,
-            kind,
-            rtpParameters,
-          });
-
-          // Remote Stream 설정
-          const remoteStream = new MediaStream();
-          remoteStream.addTrack(consumer.track);
-
-          if (kind === 'video') {
-            let videoElement = document.getElementById(
-              `remoteVideo-${producerId}`,
-            );
-            if (!videoElement) {
-              videoElement = document.createElement('video');
-              videoElement.id = `remoteVideo-${producerId}`;
-              videoElement.autoplay = true;
-              videoElement.playsInline = true;
-              document.body.appendChild(videoElement);
-            }
-            videoElement.srcObject = remoteStream;
-          } else if (kind === 'audio') {
-            let audioElement = document.getElementById(
-              `remoteAudio-${producerId}`,
-            );
-            if (!audioElement) {
-              audioElement = document.createElement('audio');
-              audioElement.id = `remoteAudio-${producerId}`;
-              audioElement.autoplay = true;
-              document.body.appendChild(audioElement);
-            }
-            audioElement.srcObject = remoteStream;
-          }
-
-          await consumer.resume();
-          console.log('Consumer resumed:', consumer.id);
-        }
-      });
-
-      socket.on('newProducer', async ({ producerId }) => {
-        console.log(`New producer detected: ${producerId}`);
-
-        if (!consumerTransport) {
-          consumerTransport = await createRecvTransport();
-        }
-
-        const { consumerId, kind, rtpParameters } = await emitWithTimeout(
-          'consume',
-          {
-            roomId,
-            transportId: consumerTransport.id,
-            producerId: producerId,
-            rtpCapabilities: device.rtpCapabilities,
-          },
-        );
-
-        const consumer = await consumerTransport.consume({
-          id: consumerId,
-          producerId,
-          kind,
-          rtpParameters,
-        });
-
-        const remoteStream = new MediaStream();
-        remoteStream.addTrack(consumer.track);
-
-        if (kind === 'video') {
-          let videoElement = document.getElementById(
-            `remoteVideo-${producerId}`,
-          );
-          if (!videoElement) {
-            videoElement = document.createElement('video');
-            videoElement.id = `remoteVideo-${producerId}`;
-            videoElement.autoplay = true;
-            videoElement.playsInline = true;
-            document.body.appendChild(videoElement);
-          }
-          videoElement.srcObject = remoteStream;
-        } else if (kind === 'audio') {
-          let audioElement = document.getElementById(
-            `remoteAudio-${producerId}`,
-          );
-          if (!audioElement) {
-            audioElement = document.createElement('audio');
-            audioElement.id = `remoteAudio-${producerId}`;
-            audioElement.autoplay = true;
-            document.body.appendChild(audioElement);
-          }
-          audioElement.srcObject = remoteStream;
-        }
-
-        await consumer.resume();
-        console.log('Consumer resumed:', consumer.id);
-      });
-
-      document
-        .getElementById('joinRoom')
-        .addEventListener('click', async () => {
-          socket.emit('joinRoom', { roomId });
-
-          device = new mediasoupClient.Device();
-          const rtpCapabilities = await emitWithTimeout(
-            'getRtpCapabilities',
-            {},
-          );
-
-          await device.load({ routerRtpCapabilities: rtpCapabilities });
-
-          const audioSource = document.getElementById('audioSource').value;
-          const videoSource = document.getElementById('videoSource').value;
-
-          localStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              deviceId: audioSource ? { exact: audioSource } : undefined,
-            },
-            video: {
-              deviceId: videoSource ? { exact: videoSource } : undefined,
-            },
-          });
-
-          document.getElementById('localVideo').srcObject = localStream;
-
-          producerTransport = await createSendTransport();
-
-          const audioTrack = localStream.getAudioTracks()[0];
-          const videoTrack = localStream.getVideoTracks()[0];
-
-          if (audioTrack) {
-            await producerTransport.produce({ track: audioTrack });
-          }
-
-          if (videoTrack) {
-            await producerTransport.produce({ track: videoTrack });
-          }
-        });
-
-      async function createSendTransport() {
-        const transportOptions = await emitWithTimeout('createTransport', {
-          roomId,
-          direction: 'send',
-        });
-        const transport = device.createSendTransport(transportOptions);
-
-        transport.on('connect', ({ dtlsParameters }, callback, errback) => {
-          emitWithTimeout('connectTransport', {
-            roomId,
-            transportId: transport.id,
-            dtlsParameters,
-          })
-            .then(() => callback())
-            .catch(errback);
-        });
-
-        transport.on('produce', (parameters, callback, errback) => {
-          emitWithTimeout('produce', {
-            roomId,
-            transportId: transport.id,
-            kind: parameters.kind,
-            rtpParameters: parameters.rtpParameters,
-          })
-            .then(({ producerId }) => callback({ id: producerId }))
-            .catch(errback);
-        });
-
-        return transport;
-      }
-
-      async function createRecvTransport() {
-        const transportOptions = await emitWithTimeout('createTransport', {
-          roomId,
-          direction: 'recv',
-        });
-        const transport = device.createRecvTransport(transportOptions);
-
-        transport.on('connect', ({ dtlsParameters }, callback, errback) => {
-          emitWithTimeout('connectTransport', {
-            roomId,
-            transportId: transport.id,
-            dtlsParameters,
-          })
-            .then(() => callback())
-            .catch(errback);
-        });
-
-        return transport;
-      }
-
-      function emitWithTimeout(event, data, timeout = 5000) {
-        return new Promise((resolve, reject) => {
-          socket.emit(event, data);
-
-          const timer = setTimeout(() => {
-            reject(new Error(`Timeout on ${event} event`));
-          }, timeout);
-
-          socket.once(event + 'Success', (response) => {
-            clearTimeout(timer);
-            resolve(response);
-          });
-
-          socket.once(event + 'Error', (error) => {
-            clearTimeout(timer);
-            reject(new Error(error.message || `Error on ${event} event`));
-          });
-        });
-      }
-
-      getMediaDevices();
-    </script>
+    <script src="scripts.js"></script>
   </body>
 </html>
