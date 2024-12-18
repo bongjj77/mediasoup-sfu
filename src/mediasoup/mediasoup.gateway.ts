@@ -16,6 +16,7 @@ export class MediasoupGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer() server: Server;
+  private clientRooms = new Map<string, string>(); // 클라이언트 ID와 방 ID 매핑
 
   constructor(
     private readonly mediasoupService: MediasoupService,
@@ -37,13 +38,7 @@ export class MediasoupGateway
    * Socket.IO disconnected
    */
   handleDisconnect(client: Socket): void {
-    // 클라이언트가 속한 모든 방을 출력
-    this.logger.debug(
-      `Disconnecting client(${client.id}) rooms: ${Array.from(client.rooms)}`,
-    );
-
-    // 클라이언트 ID를 제외한 실제 방 ID 가져오기
-    const roomId = Array.from(client.rooms).find((room) => room !== client.id);
+    const roomId = this.clientRooms.get(client.id); // 방 ID 가져오기
 
     this.logger.debug(
       `Client disconnected - client(${client.id}) room(${roomId})`,
@@ -71,13 +66,11 @@ export class MediasoupGateway
     // 방 생성 (이미 존재하면 기존 방 반환)
     await this.mediasoupService.createRoom(roomId);
 
+    // 클라이언트와 방 정보 저장
+    this.clientRooms.set(client.id, roomId);
+
     // 클라이언트를 방에 추가
     client.join(roomId);
-
-    // 방 목록 출력 (디버깅 용도)
-    this.logger.debug(
-      `Client(${client.id}) current rooms: ${Array.from(client.rooms)}`,
-    );
 
     // 기존 Producer 목록 가져오기
     const producers = this.mediasoupService.getProducers(roomId);

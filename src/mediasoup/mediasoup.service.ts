@@ -46,16 +46,17 @@ export class MediasoupService {
   cleanupClientResources(roomId: string, clientId: string): void {
     const room = this.rooms.get(roomId);
     if (!room) {
-      this.logger.error(`Room ${roomId} not found during cleanup`);
+      this.logger.warn(
+        `Cleanup requested for client(${clientId}), but room(${roomId}) not found.`,
+      );
       return;
     }
 
-    // Room 내 모든 transports와 producers에서 clientId와 관련된 자원을 제거
     for (const [transportId, transport] of room.transports) {
       if (transport.appData.clientId === clientId) {
         transport.close();
         room.transports.delete(transportId);
-        this.logger.debug(`Transport ${transportId} closed and removed`);
+        this.logger.debug(`Transport(${transportId}) closed and removed.`);
       }
     }
 
@@ -63,13 +64,14 @@ export class MediasoupService {
       if (producer.appData.clientId === clientId) {
         producer.close();
         room.producers.delete(producerId);
-        this.logger.debug(`Producer ${producerId} closed and removed`);
+        this.logger.debug(`Producer(${producerId}) closed and removed.`);
       }
     }
 
+    // 모든 자원이 정리된 경우 방 삭제
     if (room.transports.size === 0 && room.producers.size === 0) {
       this.rooms.delete(roomId);
-      this.logger.debug(`Room ${roomId} deleted as it has no resources left`);
+      this.logger.debug(`Room(${roomId}) deleted as no resources remain.`);
     }
   }
 
