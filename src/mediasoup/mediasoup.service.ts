@@ -98,7 +98,7 @@ export class MediasoupService {
     }
 
     const transport = await this.router.createWebRtcTransport({
-      listenIps: [{ ip: '127.0.0.1' }],
+      listenIps: [{ ip: '3.38.19.181' }],
       enableUdp: true,
       enableTcp: true,
       appData: { clientId }, // clientId 저장
