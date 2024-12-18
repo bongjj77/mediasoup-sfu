@@ -80,12 +80,12 @@ document.getElementById('leaveRoom').addEventListener('click', () => {
   console.log(`Client exited room: ${roomId}`);
 });
 
-// Handle joining a room and consuming streams
+// Handle joinedRoom event
 socket.on('joinedRoom', async ({ roomId, producers }) => {
   console.log(`Joined room: ${roomId}, existing producers:`, producers);
 
   for (const producer of producers) {
-    const { producerId, kind } = producer;
+    const { producerId, kind, clientId } = producer;
 
     if (!consumerTransport) {
       consumerTransport = await createRecvTransport();
@@ -108,21 +108,22 @@ socket.on('joinedRoom', async ({ roomId, producers }) => {
     const remoteStream = new MediaStream();
     remoteStream.addTrack(consumer.track);
 
+    // Use clientId for element ID
     if (kind === 'video') {
-      let videoElement = document.getElementById(`remoteVideo-${producerId}`);
+      let videoElement = document.getElementById(`remoteVideo-${clientId}`);
       if (!videoElement) {
         videoElement = document.createElement('video');
-        videoElement.id = `remoteVideo-${producerId}`;
+        videoElement.id = `remoteVideo-${clientId}`;
         videoElement.autoplay = true;
         videoElement.playsInline = true;
         document.getElementById('remoteStreams').appendChild(videoElement);
       }
       videoElement.srcObject = remoteStream;
     } else if (kind === 'audio') {
-      let audioElement = document.getElementById(`remoteAudio-${producerId}`);
+      let audioElement = document.getElementById(`remoteAudio-${clientId}`);
       if (!audioElement) {
         audioElement = document.createElement('audio');
-        audioElement.id = `remoteAudio-${producerId}`;
+        audioElement.id = `remoteAudio-${clientId}`;
         audioElement.autoplay = true;
         document.getElementById('remoteStreams').appendChild(audioElement);
       }
@@ -134,9 +135,9 @@ socket.on('joinedRoom', async ({ roomId, producers }) => {
   }
 });
 
-// Listen for new producers
-socket.on('newProducer', async ({ producerId }) => {
-  console.log(`New producer detected: ${producerId}`);
+// Listen for newProducer event
+socket.on('newProducer', async ({ producerId, clientId }) => {
+  console.log(`New producer detected: ${producerId} from client: ${clientId}`);
 
   if (!consumerTransport) {
     consumerTransport = await createRecvTransport();
@@ -159,21 +160,22 @@ socket.on('newProducer', async ({ producerId }) => {
   const remoteStream = new MediaStream();
   remoteStream.addTrack(consumer.track);
 
+  // Use clientId for element ID
   if (kind === 'video') {
-    let videoElement = document.getElementById(`remoteVideo-${producerId}`);
+    let videoElement = document.getElementById(`remoteVideo-${clientId}`);
     if (!videoElement) {
       videoElement = document.createElement('video');
-      videoElement.id = `remoteVideo-${producerId}`;
+      videoElement.id = `remoteVideo-${clientId}`;
       videoElement.autoplay = true;
       videoElement.playsInline = true;
       document.getElementById('remoteStreams').appendChild(videoElement);
     }
     videoElement.srcObject = remoteStream;
   } else if (kind === 'audio') {
-    let audioElement = document.getElementById(`remoteAudio-${producerId}`);
+    let audioElement = document.getElementById(`remoteAudio-${clientId}`);
     if (!audioElement) {
       audioElement = document.createElement('audio');
-      audioElement.id = `remoteAudio-${producerId}`;
+      audioElement.id = `remoteAudio-${clientId}`;
       audioElement.autoplay = true;
       document.getElementById('remoteStreams').appendChild(audioElement);
     }

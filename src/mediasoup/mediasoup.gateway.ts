@@ -223,7 +223,9 @@ export class MediasoupGateway
       client.emit('produceSuccess', { producerId: producer.id });
 
       // 방의 다른 클라이언트에게 새로운 Producer 정보 브로드캐스트
-      client.to(roomId).emit('newProducer', { producerId: producer.id });
+      client
+        .to(roomId)
+        .emit('newProducer', { producerId: producer.id, clientId: client.id });
     } catch (error) {
       this.logger.error('Error creating producer:', error.stack);
       client.emit('produceError', { error: error.message });
