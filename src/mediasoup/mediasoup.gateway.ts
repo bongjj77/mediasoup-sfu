@@ -45,7 +45,15 @@ export class MediasoupGateway
     );
 
     if (roomId) {
+      // 방에 있는 다른 클라이언트들에게 알림
+      this.server
+        .to(roomId)
+        .emit('clientDisconnected', { clientId: client.id });
+
       this.mediasoupService.cleanupClientResources(roomId, client.id);
+
+      // clientRooms에서 해당 클라이언트 정보 제거
+      this.clientRooms.delete(client.id);
     } else {
       this.logger.warn(
         `Client(${client.id}) disconnected but no associated room found.`,
@@ -83,6 +91,35 @@ export class MediasoupGateway
         clientId: producer.appData.clientId, // 해당 Producer를 생성한 클라이언트 ID
       })),
     });
+  }
+
+  /**
+   * Exit Room
+   */
+  @SubscribeMessage('clientExited')
+  handleClientExited(client: Socket, { roomId }: { roomId: string }): void {
+    this.logger.debug(`Client exited - client(${client.id}) room(${roomId})`);
+
+    if (roomId) {
+      // 방에 있는 다른 클라이언트들에게 알림
+      this.server
+        .to(roomId)
+        .emit('clientDisconnected', { clientId: client.id });
+
+      // Mediasoup 관련 리소스 정리
+      this.mediasoupService.cleanupClientResources(roomId, client.id);
+
+      // clientRooms에서 해당 클라이언트 정보 제거
+      this.clientRooms.delete(client.id);
+
+      // 클라이언트를 방에서 제거
+      client.leave(roomId);
+      this.logger.debug(`Client(${client.id}) removed from room(${roomId})`);
+    } else {
+      this.logger.warn(
+        `Client(${client.id}) tried to exit but no associated room found.`,
+      );
+    }
   }
 
   /**

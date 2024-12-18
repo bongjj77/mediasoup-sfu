@@ -75,6 +75,11 @@ document.getElementById('joinRoom').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('leaveRoom').addEventListener('click', () => {
+  socket.emit('clientExited', { roomId });
+  console.log(`Client exited room: ${roomId}`);
+});
+
 // Handle joining a room and consuming streams
 socket.on('joinedRoom', async ({ roomId, producers }) => {
   console.log(`Joined room: ${roomId}, existing producers:`, producers);
@@ -126,6 +131,75 @@ socket.on('joinedRoom', async ({ roomId, producers }) => {
 
     await consumer.resume();
     console.log('Consumer resumed:', consumer.id);
+  }
+});
+
+// Listen for new producers
+socket.on('newProducer', async ({ producerId }) => {
+  console.log(`New producer detected: ${producerId}`);
+
+  if (!consumerTransport) {
+    consumerTransport = await createRecvTransport();
+  }
+
+  const { consumerId, kind, rtpParameters } = await emitWithTimeout('consume', {
+    roomId,
+    transportId: consumerTransport.id,
+    producerId,
+    rtpCapabilities: device.rtpCapabilities,
+  });
+
+  const consumer = await consumerTransport.consume({
+    id: consumerId,
+    producerId,
+    kind,
+    rtpParameters,
+  });
+
+  const remoteStream = new MediaStream();
+  remoteStream.addTrack(consumer.track);
+
+  if (kind === 'video') {
+    let videoElement = document.getElementById(`remoteVideo-${producerId}`);
+    if (!videoElement) {
+      videoElement = document.createElement('video');
+      videoElement.id = `remoteVideo-${producerId}`;
+      videoElement.autoplay = true;
+      videoElement.playsInline = true;
+      document.getElementById('remoteStreams').appendChild(videoElement);
+    }
+    videoElement.srcObject = remoteStream;
+  } else if (kind === 'audio') {
+    let audioElement = document.getElementById(`remoteAudio-${producerId}`);
+    if (!audioElement) {
+      audioElement = document.createElement('audio');
+      audioElement.id = `remoteAudio-${producerId}`;
+      audioElement.autoplay = true;
+      document.getElementById('remoteStreams').appendChild(audioElement);
+    }
+    audioElement.srcObject = remoteStream;
+  }
+
+  await consumer.resume();
+  console.log('Consumer resumed:', consumer.id);
+});
+
+// Listen for clientDisconnected event
+socket.on('clientDisconnected', ({ clientId }) => {
+  console.log(`Client disconnected: ${clientId}`);
+
+  // Remove video element
+  const videoElement = document.getElementById(`remoteVideo-${clientId}`);
+  if (videoElement) {
+    videoElement.remove();
+    console.log(`Removed video element for client: ${clientId}`);
+  }
+
+  // Remove audio element
+  const audioElement = document.getElementById(`remoteAudio-${clientId}`);
+  if (audioElement) {
+    audioElement.remove();
+    console.log(`Removed audio element for client: ${clientId}`);
   }
 });
 
