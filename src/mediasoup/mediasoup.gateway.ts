@@ -30,17 +30,22 @@ export class MediasoupGateway
    * Socket.IO connected
    */
   handleConnection(client: Socket): void {
-    this.logger.debug(`Client connected - client(${client.id}`);
+    this.logger.debug(`Client connected - client(${client.id})`);
   }
 
   /**
    * Socket.IO disconnected
    */
   handleDisconnect(client: Socket): void {
-    this.logger.debug(`Client disconnected - client(${client.id}`);
+    this.logger.debug(`Client disconnected - client(${client.id})`);
 
     // 클라이언트가 참여한 roomId를 가져와 자원 정리
     const roomId = Array.from(client.rooms).find((room) => room !== client.id); // client.id는 자신의 기본 room이므로 제외
+
+    this.logger.debug(
+      `Client disconnected - client(${client.id}) room(${roomId})`,
+    );
+
     if (roomId) {
       this.mediasoupService.cleanupClientResources(roomId, client.id);
     }
