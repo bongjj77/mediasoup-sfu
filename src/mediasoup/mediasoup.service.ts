@@ -17,7 +17,10 @@ export class MediasoupService {
    * - worker/router 생성
    */
   async initializeWorker(): Promise<void> {
-    this.worker = await mediasoup.createWorker();
+    this.worker = await mediasoup.createWorker({
+      rtcMinPort: 40000, // 최소 포트
+      rtcMaxPort: 49999, // 최대 포트
+    });
     this.router = await this.worker.createRouter({
       mediaCodecs: [
         {
@@ -98,7 +101,9 @@ export class MediasoupService {
     }
 
     const transport = await this.router.createWebRtcTransport({
-      listenIps: [{ ip: '3.38.19.181' }],
+      listenIps: [
+        { ip: '0.0.0.0', announcedIp: '3.38.19.181' }, // EC2 퍼블릭 IP 또는 도메인
+      ],
       enableUdp: true,
       enableTcp: true,
       appData: { clientId }, // clientId 저장
