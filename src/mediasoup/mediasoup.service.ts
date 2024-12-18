@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as mediasoup from 'mediasoup';
+import { CustomLogger } from 'src/logging/custom-logger.service';
 
 type Room = {
   transports: Map<string, mediasoup.types.WebRtcTransport>;
@@ -12,6 +13,7 @@ export class MediasoupService {
   public router: mediasoup.types.Router;
   private rooms = new Map<string, Room>();
 
+  constructor(private readonly logger: CustomLogger) {}
   /**
    * 초기화
    * - worker/router 생성
@@ -44,7 +46,7 @@ export class MediasoupService {
   cleanupClientResources(roomId: string, clientId: string): void {
     const room = this.rooms.get(roomId);
     if (!room) {
-      console.error(`Room ${roomId} not found during cleanup`);
+      this.logger.error(`Room ${roomId} not found during cleanup`);
       return;
     }
 
@@ -53,7 +55,7 @@ export class MediasoupService {
       if (transport.appData.clientId === clientId) {
         transport.close();
         room.transports.delete(transportId);
-        console.log(`Transport ${transportId} closed and removed`);
+        this.logger.debug(`Transport ${transportId} closed and removed`);
       }
     }
 
@@ -61,13 +63,13 @@ export class MediasoupService {
       if (producer.appData.clientId === clientId) {
         producer.close();
         room.producers.delete(producerId);
-        console.log(`Producer ${producerId} closed and removed`);
+        this.logger.debug(`Producer ${producerId} closed and removed`);
       }
     }
 
     if (room.transports.size === 0 && room.producers.size === 0) {
       this.rooms.delete(roomId);
-      console.log(`Room ${roomId} deleted as it has no resources left`);
+      this.logger.debug(`Room ${roomId} deleted as it has no resources left`);
     }
   }
 

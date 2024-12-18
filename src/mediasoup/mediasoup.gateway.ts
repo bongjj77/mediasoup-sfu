@@ -9,6 +9,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { MediasoupService } from './mediasoup.service';
 import * as mediasoup from 'mediasoup';
+import { CustomLogger } from 'src/logging/custom-logger.service';
 
 @WebSocketGateway(3001, { cors: { origin: '*' } })
 export class MediasoupGateway
@@ -16,7 +17,10 @@ export class MediasoupGateway
 {
   @WebSocketServer() server: Server;
 
-  constructor(private readonly mediasoupService: MediasoupService) {}
+  constructor(
+    private readonly mediasoupService: MediasoupService,
+    private readonly logger: CustomLogger,
+  ) {}
 
   async afterInit(): Promise<void> {
     await this.mediasoupService.initializeWorker();
@@ -26,14 +30,14 @@ export class MediasoupGateway
    * Socket.IO connected
    */
   handleConnection(client: Socket): void {
-    console.log('Client connected:', client.id);
+    this.logger.debug(`Client connected - client(${client.id}`);
   }
 
   /**
    * Socket.IO disconnected
    */
   handleDisconnect(client: Socket): void {
-    console.log('Client disconnected:', client.id);
+    this.logger.debug(`Client disconnected - client(${client.id}`);
 
     // 클라이언트가 참여한 roomId를 가져와 자원 정리
     const roomId = Array.from(client.rooms).find((room) => room !== client.id); // client.id는 자신의 기본 room이므로 제외
@@ -50,7 +54,7 @@ export class MediasoupGateway
     client: Socket,
     { roomId }: { roomId: string },
   ): Promise<void> {
-    console.log(`Client ${client.id} joined room ${roomId}`);
+    this.logger.debug(`Client ${client.id} joined - room(${roomId})`);
 
     // 방 생성 (이미 존재하면 기존 방 반환)
     await this.mediasoupService.createRoom(roomId);
@@ -108,7 +112,7 @@ export class MediasoupGateway
         dtlsParameters: transport.dtlsParameters,
       });
     } catch (error) {
-      console.error('Error creating transport:', error);
+      this.logger.error('Error creating transport:', error);
       client.emit('createTransportError', { message: error.message });
     }
   }
@@ -137,7 +141,7 @@ export class MediasoupGateway
       );
       client.emit('connectTransportSuccess', { transportId });
     } catch (error) {
-      console.error('Error connecting transport:', error);
+      this.logger.error('Error connecting transport:', error.stack);
       client.emit('connectTransportError', { message: error.message });
     }
   }
@@ -174,7 +178,7 @@ export class MediasoupGateway
       // 방의 다른 클라이언트에게 새로운 Producer 정보 브로드캐스트
       client.to(roomId).emit('newProducer', { producerId: producer.id });
     } catch (error) {
-      console.error('Error creating producer:', error);
+      this.logger.error('Error creating producer:', error.stack);
       client.emit('produceError', { error: error.message });
     }
   }
@@ -212,7 +216,7 @@ export class MediasoupGateway
         rtpParameters: consumer.rtpParameters,
       });
     } catch (error) {
-      console.error('Error creating consumer:', error);
+      this.logger.error('Error creating consumer:', error.stack);
       client.emit('consumeError', { error: error.message });
     }
   }
