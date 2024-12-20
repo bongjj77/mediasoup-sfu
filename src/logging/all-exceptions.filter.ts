@@ -16,23 +16,31 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse();
-    const request = ctx.getRequest();
+    const res = ctx.getResponse();
+    const req = ctx.getRequest();
 
     const status =
       exception instanceof HttpException ? exception.getStatus() : 500;
 
+    const message =
+      exception instanceof HttpException
+        ? exception.getResponse()
+        : 'Internal server error';
+
+    // 예외 메시지를 로그에 기록
     this.logger.error({
-      message: exception.message,
+      message: exception.message || message,
       stack: exception.stack,
       status,
-      path: request.url,
+      path: req.url,
     });
 
-    response.status(status).json({
+    // 메시지를 JSON 응답에 포함
+    res.status(status).json({
       statusCode: status,
+      message: typeof message === 'string' ? message : (message as any).message,
       timestamp: new Date().toISOString(),
-      path: request.url,
+      path: req.url,
     });
   }
 }
